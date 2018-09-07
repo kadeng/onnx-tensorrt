@@ -22,7 +22,7 @@ from setuptools import setup, find_packages, Extension
 
 __version__ = '0.1.0'
 
-INC_DIRS = []
+INC_DIRS = ["/home/klondenberg/opt/cuda/include", "/usr/include", "/home/klondenberg/anaconda3/env/tensorrt/include", "/home/klondenberg/projects/U150429_Realtime_Object_Detection_for_AID/tensorrt/TensorRT-4.0.1.6/include"]
 
 SWIG_OPTS = [
     '-c++',
