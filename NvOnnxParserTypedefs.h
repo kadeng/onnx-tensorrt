@@ -19,34 +19,13 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-
 #pragma once
 
-#include <onnx/onnx_pb.h>
-#include <NvInfer.h>
+#include <stddef.h>
 #include <vector>
-#include <unordered_map>
 
-class OnnxAttrs {
-  template<typename T>
-  using string_map = std::unordered_map<std::string, T>;
-  typedef string_map<::ONNX_NAMESPACE::AttributeProto const*> AttrMap;
-  AttrMap _attrs;
-public:
-  explicit OnnxAttrs(::ONNX_NAMESPACE::NodeProto const& onnx_node) {
-    for( auto const& attr : onnx_node.attribute() ) {
-      _attrs.insert({attr.name(), &attr});
-    }
-  }
-  bool count(std::string key) const { return _attrs.count(key); }
-  ::ONNX_NAMESPACE::AttributeProto const* at(std::string key) const {
-    if( !_attrs.count(key) ) {
-      throw std::out_of_range("Attribute not found: " + key);
-    }
-    return _attrs.at(key);
-  }
-  template<typename T> T get(std::string key) const;
-  template<typename T> T get(std::string key, T const& default_value) const {
-    return _attrs.count(key) ? this->get<T>(key) : default_value;
-  }
-};
+typedef std::size_t NodeProtoUniqueID;
+typedef std::vector<NodeProtoUniqueID>  NodesContainer_t;
+typedef std::vector<NodesContainer_t>   SubGraphCollection_t; 
+
+

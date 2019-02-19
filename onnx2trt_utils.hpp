@@ -26,7 +26,7 @@
 #include "trt_utils.hpp"
 #include "OnnxAttrs.hpp"
 
-#include <onnx/onnx.pb.h>
+#include <onnx/onnx_pb.h>
 #include <onnx/onnxifi.h>
 #include <NvInfer.h>
 
@@ -77,21 +77,29 @@ inline std::ostream& operator<<(std::ostream& stream, google::protobuf::Message 
 */
 namespace onnx2trt {
 
-inline int get_dtype_size(::ONNX_NAMESPACE::TensorProto::DataType onnx_dtype) {
+inline int get_dtype_size(int32_t onnx_dtype) {
   switch( onnx_dtype ) {
-  case ::ONNX_NAMESPACE::TensorProto::FLOAT:   return 4;
-  case ::ONNX_NAMESPACE::TensorProto::INT8:    return 1;
-  case ::ONNX_NAMESPACE::TensorProto::FLOAT16: return 2;
-  case ::ONNX_NAMESPACE::TensorProto::INT32:   return 4;
-  case ::ONNX_NAMESPACE::TensorProto::INT64:   return 8;
-  // TODO: Add remaining ONNX types...
+  case ::ONNX_NAMESPACE::TensorProto::FLOAT16:    return 2;
+  case ::ONNX_NAMESPACE::TensorProto::FLOAT:      return 4;
+  case ::ONNX_NAMESPACE::TensorProto::DOUBLE:     return 8;
+  case ::ONNX_NAMESPACE::TensorProto::COMPLEX64:  return 8;
+  case ::ONNX_NAMESPACE::TensorProto::COMPLEX128: return 16;
+  case ::ONNX_NAMESPACE::TensorProto::UINT8:      return 1;
+  case ::ONNX_NAMESPACE::TensorProto::INT8:       return 1;
+  case ::ONNX_NAMESPACE::TensorProto::UINT16:     return 2;
+  case ::ONNX_NAMESPACE::TensorProto::INT16:      return 2;
+  case ::ONNX_NAMESPACE::TensorProto::UINT32:     return 4;
+  case ::ONNX_NAMESPACE::TensorProto::INT32:      return 4;
+  case ::ONNX_NAMESPACE::TensorProto::UINT64:     return 8;
+  case ::ONNX_NAMESPACE::TensorProto::INT64:      return 8;
+  // TODO: Add BOOL if necessary...
     // TODO: Some sort of error handling
   default: return -1;//throw std::invalid_argument("Unsupported TRT data type: " +
                      //                  std::to_string((int)trt_dtype));
   }
 }
 
-inline const char* get_dtype_name(::ONNX_NAMESPACE::TensorProto::DataType onnx_dtype) {
+inline const char* get_dtype_name(int32_t onnx_dtype) {
   switch( onnx_dtype ) {
   case ::ONNX_NAMESPACE::TensorProto::FLOAT:      return "FLOAT";
   case ::ONNX_NAMESPACE::TensorProto::UINT8:      return "UINT8";
@@ -112,7 +120,7 @@ inline const char* get_dtype_name(::ONNX_NAMESPACE::TensorProto::DataType onnx_d
   }
 }
 
-inline bool convert_dtype(::ONNX_NAMESPACE::TensorProto::DataType onnx_dtype,
+inline bool convert_dtype(int32_t onnx_dtype,
                           nvinfer1::DataType* trt_dtype) {
   switch( onnx_dtype ) {
   case ::ONNX_NAMESPACE::TensorProto::FLOAT:   *trt_dtype = nvinfer1::DataType::kFLOAT; break;
@@ -165,7 +173,7 @@ inline bool convert_weight_descriptor(onnxTensorDescriptorV1 const &desc,
 
   void* data_ptr;
   size_t nbytes;
-  ::ONNX_NAMESPACE::TensorProto::DataType dtype;
+  int32_t dtype;
   data_ptr = (void*)(desc. buffer);
   if (desc.dataType == ONNXIFI_DATATYPE_FLOAT32) {
     dtype = ::ONNX_NAMESPACE::TensorProto::FLOAT;
@@ -210,16 +218,21 @@ inline bool convert_onnx_weights(::ONNX_NAMESPACE::TensorProto const& onnx_tenso
     data_ptr = (void*)onnx_tensor.raw_data().data();
     nbytes = onnx_tensor.raw_data().size();
   } else if( onnx_tensor.float_data().size() > 0 ) {
-    assert(onnx_tensor.data_type() == ::ONNX_NAMESPACE::TensorProto::FLOAT);
+    assert(dtype == ::ONNX_NAMESPACE::TensorProto::FLOAT);
     data_ptr = (void*)onnx_tensor.float_data().data();
     nbytes = onnx_tensor.float_data().size() * sizeof(float);
   } else if( onnx_tensor.int32_data().size() > 0 ) {
-    // TODO: Need special handling for int8 or float16 stored as int32_data
-    assert(get_dtype_size(dtype) == 4);
+    assert(dtype == ::ONNX_NAMESPACE::TensorProto::INT32 ||
+           dtype == ::ONNX_NAMESPACE::TensorProto::INT16 ||
+	   dtype == ::ONNX_NAMESPACE::TensorProto::INT8 ||
+	   dtype == ::ONNX_NAMESPACE::TensorProto::UINT16 ||
+	   dtype == ::ONNX_NAMESPACE::TensorProto::UINT8 ||
+	   dtype == ::ONNX_NAMESPACE::TensorProto::BOOL ||
+	   dtype == ::ONNX_NAMESPACE::TensorProto::FLOAT16);
     data_ptr = (void*)onnx_tensor.int32_data().data();
     nbytes = onnx_tensor.int32_data().size() * sizeof(int32_t);
   } else if( onnx_tensor.int64_data().size() > 0 ) {
-    assert(onnx_tensor.data_type() == ::ONNX_NAMESPACE::TensorProto::INT64);
+    assert(dtype == ::ONNX_NAMESPACE::TensorProto::INT64);
     data_ptr = (void*)onnx_tensor.int64_data().data();
     nbytes = onnx_tensor.int64_data().size() * sizeof(int64_t);
   } else {
@@ -234,8 +247,42 @@ inline bool convert_onnx_weights(::ONNX_NAMESPACE::TensorProto const& onnx_tenso
   return true;
 }
 
+// Returns the input if it is already a tensor. If it is of type ShapedWeights, adds a new
+// constant layer to the TRT network and returns its output.
+inline nvinfer1::ITensor& convertToTensor(TensorOrWeights& input, IImporterContext* ctx)
+{
+    if (input.is_tensor())
+    {
+        return input.tensor();
+    }
+    else
+    {
+        // Handle non-tensor indices input by adding a new constant layer to the network.
+        const ShapedWeights& weights = input.weights();
+        return *(ctx->network()->addConstant(weights.shape, weights)->getOutput(0));
+    }
+
+}
+
 inline int div_ceil(int n, int d) {
   return (n - 1) / d + 1;
+}
+
+// Convert an ONNX axis into a TRT axis
+inline Status convert_axis(int& axis, int nbDims)
+{
+  // Support negative indexing
+  if (axis < 0)
+  {
+    axis += nbDims;
+  }
+  // If axis was positive, subtract 1 to strip batch dimension
+  else
+  {
+    axis = axis - 1;
+  }
+  ASSERT(axis >= 0 && axis < nbDims, ErrorCode::kUNSUPPORTED_NODE);
+  return Status::success();
 }
 
 inline int get_conv_output_size(int input_size, int filter_size,

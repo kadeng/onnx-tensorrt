@@ -22,14 +22,14 @@
 
 #pragma once
 
-#include <onnx/onnx.pb.h>
+#include <onnx/onnx_pb.h>
 #include <NvInfer.h>
 
 namespace onnx2trt {
 
 class ShapedWeights {
 public:
-  typedef ::ONNX_NAMESPACE::TensorProto::DataType DataType;
+  typedef int32_t DataType;
   DataType type;
   void* values;
   nvinfer1::Dims shape;
