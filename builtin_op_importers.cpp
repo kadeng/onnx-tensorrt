@@ -1619,6 +1619,7 @@ DEFINE_BUILTIN_OP_IMPORTER(Size) {
   return {{weights}};
 }
 
+#if NV_TENSORRT_MAJOR >= 4
 DEFINE_BUILTIN_OP_IMPORTER(Slice) {
   ASSERT(inputs.size() == 1, ErrorCode::kINVALID_NODE);
   nvinfer1::ITensor* tensor_ptr = &convertToTensor(inputs.at(0), ctx);
@@ -1722,6 +1723,7 @@ DEFINE_BUILTIN_OP_IMPORTER(Slice) {
   }
   return {{tensor_ptr}};
 }
+#endif
 
 DEFINE_BUILTIN_OP_IMPORTER(Softmax) {
   ASSERT(inputs.at(0).is_tensor(), ErrorCode::kUNSUPPORTED_NODE);
